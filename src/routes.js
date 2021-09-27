@@ -5,25 +5,72 @@ const conn = require('../sql/conn');
  * 1. CRIAÇÃO DE ENDEREÇOS
  * 2. CRIAÇÃO DE DESCONTOS
  */
-routes.get('/login/:user/:password', (req, res)=>{
 
-    const {user, password} = req.params;
-    const querySql = "SELECT DELI_PASSWORD, DELI_ACTIVE FROM DELI_ACCOUNT WHERE DELI_USERNAME = ?";
-
-    conn.query(querySql, [user], (error, results, fields)=>{
-        const passMD5 = createHash('md5');
-        passMD5.update(password)
-        if(results[0].DELI_PASSWORD == passMD5.digest('hex') && results[0].DELI_ACTIVE != 'N'){
-            res.json({"status": true})
-            return;
-        }
-        res.json({"status": false})
-    })
-
-})
 /**
  * GET
  */
+// GET LOGIN
+routes.get('/login/:user/:password', (req, res)=>{
+    try {
+        const {user, password} = req.params;
+        const querySql = "SELECT DELI_PASSWORD, DELI_ACTIVE FROM DELI_ACCOUNT WHERE DELI_USERLOGIN = ?";
+    
+        conn.query(querySql, [user], (error, results, fields)=>{
+            const passMD5 = createHash('md5');
+            passMD5.update(password)
+            if(results[0].DELI_PASSWORD == passMD5.digest('hex') && results[0].DELI_ACTIVE != 'N'){
+                res.json({"status": true})
+                return;
+            }
+            res.json({"status": false})
+        })
+    } catch (error) {
+        console.log(error);
+        conn.rollback()
+    }
+    
+})
+// GET LOGIN
+// GET ACCOUNT INFO
+routes.post('/account/', (req, res)=>{
+    const user = req.body;
+
+    try {
+
+        if(!user.hash_user){
+            res.json({"error":"user.hash.missing"})
+            return;
+        }
+        const querySql = "SELECT * FROM DELI_ACCOUNT WHERE DELI_HASH = ?";
+
+        const userInfos = {
+            "user":[],
+            "address":[]
+        }
+        conn.query(querySql, [user.hash_user], (error, results, fields)=>{
+            if(error) throw error;
+            userInfos.user.push(results)
+            const queryAddress = "SELECT * FROM deli_address AS A "+
+            "LEFT JOIN deli_account_address AD ON (AD.DELI_HASH_ADDRESS = A.DELI_HASH) "+
+            "LEFT JOIN deli_account AS AC ON (AC.DELI_HASH = AD.DELI_HASH_ACCOUNT) "+
+            "WHERE AC.DELI_HASH = ?"
+
+            conn.query(queryAddress,user.hash_user,(error, data)=>{
+                if(error) throw error;
+                userInfos.address.push(data)
+                res.json(userInfos)
+            })
+        }) 
+
+    } catch (error) {
+        console.log(error);
+        conn.rollback()
+    }
+
+  
+
+})
+// GET ACCOUNT INFO
 // GET MENU
 routes.get('/menu', (req, res)=>{
 
@@ -62,9 +109,9 @@ routes.get('/menu-items/:category_hash', (req, res)=>{
  * FIM GET
  */
 /**
- * SET
+ * CREATE
  */
-// SET MENU
+// CREATE MENU
 routes.post('/menu-add', (req, res)=>{
     conn.beginTransaction()
     const dataBody = req.body;
@@ -100,11 +147,10 @@ routes.post('/menu-add', (req, res)=>{
         conn.rollback()
         return
     }
-    
 
 })
-// SET MENU
-// SET SUBMENU
+// CREATE MENU
+// CREATE SUBMENU
 routes.post('/menu-submenu-add', (req, res)=>{
     conn.beginTransaction()
     const dataBody = req.body;
@@ -155,8 +201,8 @@ routes.post('/menu-submenu-add', (req, res)=>{
     
 
 })
-// SET SUBMENU
-// SET SUBMENU ITEMS
+// CREATE SUBMENU
+// CREATE SUBMENU ITEMS
 routes.post('/menu-submenu-items-add', (req, res)=>{
     conn.beginTransaction()
     const dataBody = req.body;
@@ -206,8 +252,8 @@ routes.post('/menu-submenu-items-add', (req, res)=>{
         return
     }
 })
-// SET SUBMENU ITEMS
-// SET ORDER
+// CREATE SUBMENU ITEMS
+// CREATE ORDER
 routes.post('/create-order',(req, res)=>{
   
     // afeter insert velue, return 'insertId' from query
@@ -268,8 +314,124 @@ routes.post('/create-order',(req, res)=>{
     }
    
 })
-// SET ORDER
+// CREATE ORDER
+// CREATE USER
+routes.post('/user-create', (req, res)=>{
+    const user = req.body;
+    try {
+        if(!user.user_name){
+            res.json({"error":"user.name.missing"})
+            return;
+        }
+        if(!user.user_login){
+            res.json({"error":"user.login.missing"})
+            return;
+        }
+        if(!user.user_mail){
+            res.json({"error":"user.mail.missing"})
+            return;
+        }
+        if(!user.user_password){
+            res.json({"error":"user.password.missing"})
+            return;
+        }
+        
+        const {user_name, user_login, user_mail, user_password} = user;
+        const userInfos = [user_name, user_login, user_mail, user_password]
+
+        const newDate = new Date().toISOString()
+
+        userInfos.push(newDate);
+
+        conn.query('INSERT INTO DELI_ACCOUNT(DELI_USERNAME, DELI_USERLOGIN, DELI_EMAIL, DELI_PASSWORD, DELI_DT_CREATED) VALUES(?,?,?,?,?)',userInfos,(err, data, fields) => {
+
+            if(err) throw err;
+            
+            conn.commit();
+
+            res.json({"status":"ok"});
+
+        });
+
+    } catch (error) {
+        console.log(error);
+        conn.rollback()
+    }
+
+})
+// CREATE USER
+// CREATE USER ADDRESS
+routes.post('/user-create-address', (req, res)=>{
+    const user = req.body;
+    try {
+        if(!user.address_user){
+            res.json({"error":"address.user.missing"})
+            return;
+        }
+        if(!user.address_title){
+            res.json({"error":"address.title.missing"})
+            return;
+        }
+        if(!user.address_cep){
+            res.json({"error":"address.cep.missing"})
+            return;
+        }
+        if(!user.address_name_1){
+            res.json({"error":"address.address_1.missing"})
+            return;
+        }
+        if(!user.address_name_2){
+            res.json({"error":"address.address_2.missing"})
+            return;
+        }
+        if(!user.address_city){
+            res.json({"error":"address.city.missing"})
+            return;
+        }
+        if(!user.address_state){
+            res.json({"error":"address.state.missing"})
+            return;
+        }
+        if(!user.address_country){
+            res.json({"error":"address.country.missing"})
+            return;
+        }
+        const {address_user, address_title, address_cep, address_name_1,address_name_2,address_city,address_state,address_country} = user;
+        const addressInfos = [address_title, address_cep, address_name_1,address_name_2,address_city,address_state,address_country]
+        
+        const newDate = new Date().toISOString()
+
+        addressInfos.push(user.address_description || null);
+        addressInfos.push(newDate);
+
+        conn.query('INSERT INTO DELI_ADDRESS(DELI_TITLE, DELI_CEP, DELI_ADDRESS_1, DELI_ADDRESS_2, DELI_CITY,DELI_STATE, DELI_COUNTRY, DELI_DESCRIPTION, DELI_DT_CREATED) VALUES(?,?,?,?,?,?,?,?,?)', addressInfos, (err, data, fields) => {
+
+            if(err) throw err;
+            
+            conn.query('SELECT DELI_HASH FROM DELI_ADDRESS WHERE DELI_ID_ADDRESS = ?',[data.insertId], (err,data)=>{
+                if(err) throw err;
+                
+                const infoAddressAccount = [data[0].DELI_HASH, address_user]
+
+                conn.query('INSERT INTO DELI_ACCOUNT_ADDRESS(DELI_HASH_ADDRESS, DELI_HASH_ACCOUNT) VALUES(?, ?)', infoAddressAccount, (err, data)=>{
+                   
+                    if(err) throw err;
+
+                    res.json({"status":"ok"});
+
+                })
+            })
+
+        });
+
+    } catch (error) {
+        console.log(error);
+        conn.rollback()
+    }
+
+})
+// CREATE USER ADDRESS
 /**
- * FIM SET
+ * FIM CREATE
  */
 module.exports = routes;
